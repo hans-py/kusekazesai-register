@@ -1,7 +1,9 @@
 // アプリ本体と Firebase SDK を端末にキャッシュして、電波がなくても起動できるようにする。
 // 自分のファイルはネット優先(更新がすぐ反映される)。3 秒で応答がなければキャッシュを使う。
+// GitHub Pages は max-age=600 で配信するため、ブラウザの HTTP キャッシュを経由すると
+// 「新しい index.html と古い app.js」が混ざる。毎回サーバーに最新かを確認する(cache: 'no-cache')。
 // Firebase SDK(gstatic)はキャッシュ優先。
-const CACHE = 'bunkasai-register-v1';
+const CACHE = 'bunkasai-register-v2';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest', 'firebase-config.js',
   'js/app.js', 'js/store.js', 'js/store-local.js', 'js/store-firebase.js', 'js/util.js',
@@ -9,7 +11,11 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -25,7 +31,7 @@ async function networkFirst(req) {
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 3000);
-    const res = await fetch(req, { signal: ctl.signal });
+    const res = await fetch(req, { signal: ctl.signal, cache: 'no-cache' });
     clearTimeout(timer);
     if (res.ok) cache.put(req, res.clone());
     return res;
