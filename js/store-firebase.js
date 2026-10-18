@@ -1,7 +1,11 @@
 // Firebase(Firestore + Auth)版のデータ層。
 // ・Firestore のオフライン永続キャッシュを使うので、電波が切れても入力は止まらず、復帰後に自動で同期される。
 // ・書き込みは await しない(オフライン中は完了待ちが終わらないため)。ローカルには即反映される。
-// ・合言葉(PIN)は、Firebase Auth の共有アカウントのパスワードとして使う。
+// ・合言葉(PIN)は Firebase Auth の共有アカウントのパスワード。アカウントは 2 つ:
+//     スタッフ用(loginEmail)  … 会計の作成と、直後の取り消しだけ。売上は読めない。
+//     管理者用(adminEmail)    … すべて。
+//   権限の本体は Firestore のルール(SETUP.md)。このファイルの役割判定は、画面を出し分けるためのもの。
+//   adminEmail が未設定なら全員を管理者として扱う(旧ルールのままの環境との互換用)。
 import { cleanImport } from './util.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
@@ -31,28 +35,32 @@ export async function create(cfg) {
   const cached = { sellers: true, products: true, sales: true };
   const changeFns = new Set();
   const errorFns = new Set();
-  const authFns = new Set();
   let unsubs = [];
   let ready = false;
+  let role = 'admin';
+  let inflight = 0; // スタッフは sales を読めないため、自分の書き込みの完了待ちを数える
 
   const fail = (msg) => errorFns.forEach((f) => f(msg));
   const writeFail = (e) => {
     console.error(e);
     fail(
       e?.code === 'permission-denied'
-        ? '書き込みが拒否されました。ログインし直してください'
+        ? 'この操作の権限がありません'
         : '保存に失敗しました: ' + (e?.message || e)
     );
   };
   const clean = (o) => JSON.parse(JSON.stringify(o)); // undefined を落とす(Firestore は undefined を拒否する)
 
+  const watched = () => (role === 'admin' ? COLLECTIONS : ['sellers', 'products']);
+
   const emit = () => {
+    const names = watched();
     const snap = {
       sellers: [...st.sellers].sort((a, b) => a.order - b.order),
       products: [...st.products].sort((a, b) => a.order - b.order),
       sales: [...st.sales].sort((a, b) => a.ts - b.ts),
-      pending: pend.sellers + pend.products + pend.sales,
-      offline: cached.sales && cached.products && cached.sellers,
+      pending: role === 'admin' ? pend.sellers + pend.products + pend.sales : inflight,
+      offline: names.every((n) => cached[n]),
       ready,
     };
     changeFns.forEach((f) => f(snap));
@@ -84,7 +92,7 @@ export async function create(cfg) {
   function listen() {
     stopListening();
     const myGen = gen;
-    COLLECTIONS.forEach((name) => listenOne(name, myGen));
+    watched().forEach((name) => listenOne(name, myGen));
   }
   function stopListening() {
     gen += 1; // 保留中の再接続を無効にする
@@ -94,36 +102,49 @@ export async function create(cfg) {
     ready = false;
   }
 
+  const track = (promise) => {
+    inflight += 1;
+    emit();
+    promise.catch(writeFail).finally(() => {
+      inflight -= 1;
+      emit();
+    });
+  };
   const refOf = (name, id) => (id ? fsM.doc(db, name, id) : fsM.doc(fsM.collection(db, name)));
   const put = (name, obj) => {
     const { id, ...rest } = obj;
     const ref = refOf(name, id);
-    fsM.setDoc(ref, clean(rest), { merge: true }).catch(writeFail);
+    track(fsM.setDoc(ref, clean(rest), { merge: true }));
     return ref.id;
   };
-  const del = (name, id) => fsM.deleteDoc(fsM.doc(db, name, id)).catch(writeFail);
+  const del = (name, id) => track(fsM.deleteDoc(fsM.doc(db, name, id)));
 
   // 500 件ずつのバッチで書く(Firestore の上限)。
   function batched(items, apply) {
     for (let i = 0; i < items.length; i += 400) {
       const b = fsM.writeBatch(db);
       items.slice(i, i + 400).forEach((x) => apply(b, x));
-      b.commit().catch(writeFail);
+      track(b.commit());
     }
   }
 
   return {
     mode: 'firebase',
+    adminEnabled: !!cfg.adminEmail,
     onAuth(fn) {
-      authFns.add(fn);
       authM.onAuthStateChanged(auth, (user) => {
-        if (user) listen();
-        else stopListening();
-        authFns.forEach((f) => f(!!user));
+        if (user) {
+          role = !cfg.adminEmail || user.email === cfg.adminEmail ? 'admin' : 'staff';
+          listen();
+        } else {
+          stopListening();
+        }
+        fn(!!user, role);
       });
     },
-    async login(pin) {
-      await authM.signInWithEmailAndPassword(auth, cfg.loginEmail, pin);
+    async login(pin, asAdmin = false) {
+      const email = asAdmin ? cfg.adminEmail : cfg.loginEmail;
+      await authM.signInWithEmailAndPassword(auth, email, pin);
     },
     async logout() {
       await authM.signOut(auth);
@@ -139,8 +160,12 @@ export async function create(cfg) {
     saveProduct: (o) => put('products', o),
     deleteProduct: (id) => del('products', id),
     addSale: (sale) => put('sales', sale),
-    setVoided(id, voided) {
-      fsM.updateDoc(fsM.doc(db, 'sales', id), { voided }).catch(writeFail);
+    // 取消・復元の記録(誰が・いつ)を残す。スタッフが送れるのは「取消(voided:true)」だけ(ルール側で強制)。
+    setVoided(id, voided, by = '') {
+      const patch = voided
+        ? { voided: true, voidedAt: Date.now(), voidedBy: by }
+        : { voided: false, restoredAt: Date.now(), restoredBy: by };
+      track(fsM.updateDoc(fsM.doc(db, 'sales', id), patch));
     },
     clearSales() {
       batched(st.sales, (b, s) => b.delete(fsM.doc(db, 'sales', s.id)));

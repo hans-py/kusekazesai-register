@@ -14,10 +14,13 @@ export function create() {
   const changeFns = new Set();
   const errorFns = new Set();
 
+  // 画面確認用: URL に ?role=staff を付けると、スタッフ(売上を読めない)の見え方を再現する。
+  const asStaff = new URLSearchParams(location.search).get('role') === 'staff';
+
   const snapshot = () => ({
     sellers: [...data.sellers].sort((a, b) => a.order - b.order),
     products: [...data.products].sort((a, b) => a.order - b.order),
-    sales: [...data.sales].sort((a, b) => a.ts - b.ts),
+    sales: asStaff ? [] : [...data.sales].sort((a, b) => a.ts - b.ts),
     pending: 0,
     offline: false,
     ready: true,
@@ -43,7 +46,7 @@ export function create() {
   return {
     mode: 'demo',
     onAuth(fn) {
-      queueMicrotask(() => fn(true));
+      queueMicrotask(() => fn(true, asStaff ? 'staff' : 'admin'));
     },
     async login() {},
     async logout() {},
@@ -77,9 +80,9 @@ export function create() {
       persist();
       return id;
     },
-    setVoided(id, voided) {
+    setVoided(id, voided, by = '') {
       const s = data.sales.find((x) => x.id === id);
-      if (s) s.voided = voided;
+      if (s) Object.assign(s, voided ? { voided: true, voidedAt: Date.now(), voidedBy: by } : { voided: false, restoredAt: Date.now(), restoredBy: by });
       persist();
     },
     clearSales() {

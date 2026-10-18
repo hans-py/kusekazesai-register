@@ -69,6 +69,8 @@ export function cleanImport(data) {
   const sales = (data.sales || []).filter((s) => s?.id && Array.isArray(s.items)).map((s) => ({
     id: str(s.id, 80), ts: num(s.ts), staff: str(s.staff, 30), total: num(s.total), received: num(s.received),
     change: num(s.change), voided: !!s.voided,
+    ...Object.fromEntries(['voidedAt', 'restoredAt'].filter((k) => s[k]).map((k) => [k, num(s[k])])),
+    ...Object.fromEntries(['voidedBy', 'restoredBy'].filter((k) => s[k]).map((k) => [k, str(s[k], 30)])),
     items: s.items.map((i) => ({
       pid: str(i.pid, 80), sid: str(i.sid, 80), name: str(i.name, 40), sname: str(i.sname, 30),
       price: num(i.price), qty: Math.max(0, Math.round(num(i.qty))),

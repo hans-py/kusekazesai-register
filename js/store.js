@@ -11,7 +11,9 @@
 
 export async function createStore() {
   const { default: cfg } = await import('../firebase-config.js');
-  if (cfg?.firebase?.apiKey && cfg?.loginEmail) {
+  // URL に ?demo=1 を付けると、設定があっても端末内だけのデモモードで開く(画面確認・練習用。Firebase には触れない)。
+  const forceDemo = new URLSearchParams(location.search).get('demo') === '1';
+  if (!forceDemo && cfg?.firebase?.apiKey && cfg?.loginEmail) {
     return (await import('./store-firebase.js')).create(cfg);
   }
   return (await import('./store-local.js')).create();

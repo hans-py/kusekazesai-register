@@ -2,7 +2,13 @@ import { createStore } from './store.js';
 import { esc, yen, safeColor, toCsv, download, resizePhoto } from './util.js';
 
 const SELLER_COLORS = ['#c8472b', '#2f6db5', '#7a4fa3', '#8f5f00', '#1f7a66', '#b83a72', '#55662a', '#4a5568'];
-const VIEWS = ['register', 'report', 'setup', 'admin'];
+const VIEWS = ['register', 'report', 'history', 'setup', 'admin'];
+// 役割ごとに開ける画面。スタッフは売上を読めない(Firestore のルールで強制)ので、売上系の画面は出さない。
+// スタッフもレジと商品登録はできる。
+const TABS = {
+  admin: [['register', 'レジ'], ['report', '集計'], ['history', '履歴'], ['setup', '登録'], ['admin', '管理']],
+  staff: [['register', 'レジ'], ['setup', '登録'], ['admin', '設定']],
+};
 
 const $ = (s, r = document) => r.querySelector(s);
 const main = $('#main');
@@ -17,6 +23,10 @@ let state = { sellers: [], products: [], sales: [], pending: 0, offline: false, 
 let sellerById = new Map();
 let productById = new Map();
 let loggedIn = null; // null = 確認中
+let role = 'admin'; // 'admin' | 'staff'
+let loginAsAdmin = false;
+let histFilter = 'all';
+let histLimit = 50;
 let view = VIEWS.includes(lsGet('rg.view')) ? lsGet('rg.view') : 'register';
 let filterSeller = 'all';
 let staff = lsGet('rg.staff') || '';
@@ -27,7 +37,6 @@ let dlgHandler = null;
 
 const saveCart = () => lsSet('rg.cart', JSON.stringify([...cart]));
 const colorOf = (sid) => safeColor(sellerById.get(sid)?.color);
-const timeStr = (ts) => new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 const dateTimeStr = (ts) => new Date(ts).toLocaleString('ja-JP', { hour12: false });
 
 /* ============ 起動 ============ */
@@ -35,8 +44,9 @@ async function boot() {
   store = await createStore();
   store.onChange((s) => { state = s; reindex(); render(); });
   store.onError((m) => toast(m, { error: true, ms: 6000 }));
-  store.onAuth((ok) => {
+  store.onAuth((ok, r) => {
     loggedIn = ok;
+    role = r || 'admin';
     render();
     if (ok && !staff) askStaff();
   });
@@ -68,8 +78,12 @@ function render() {
   renderSync();
   if (loggedIn === null) { main.innerHTML = '<p class="muted pad">読み込み中…</p>'; return; }
   if (!ok) { renderLogin(); updateCartBar(); return; }
-  ({ register: renderRegister, report: renderReport, setup: renderSetup, admin: renderAdmin })[view]();
-  document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('is-on', b.dataset.view === view));
+  if (!TABS[role].some(([v]) => v === view)) view = 'register';
+  $('#tabbar').style.setProperty('--tabs', TABS[role].length);
+  $('#tabbar').innerHTML = TABS[role]
+    .map(([v, label]) => `<button type="button" data-view="${v}" class="${v === view ? 'is-on' : ''}">${label}</button>`)
+    .join('');
+  ({ register: renderRegister, report: renderReport, history: renderHistory, setup: renderSetup, admin: renderAdmin })[view]();
   updateCartBar();
   window.scrollTo(0, y);
 }
@@ -88,20 +102,22 @@ function renderSync() {
 function renderLogin() {
   main.innerHTML = `
     <form class="login" id="loginForm">
-      <h2>合言葉を入力</h2>
-      <label class="field"><span>合言葉</span>
+      <h2>${loginAsAdmin ? '管理者ログイン' : '合言葉を入力'}</h2>
+      <label class="field"><span>${loginAsAdmin ? '管理者の合言葉' : '合言葉'}</span>
         <input class="input" type="password" id="pin" autocomplete="current-password" required>
       </label>
       <p class="err" id="loginErr" role="alert"></p>
       <button class="btn primary big">ログイン</button>
       <p class="hint">初回だけネット接続が必要です。ログイン後は電波がなくても使えます。</p>
+      ${store.adminEnabled ? `<button type="button" class="btn ghost" id="roleSwitch">${loginAsAdmin ? 'スタッフとしてログインする' : '管理者としてログインする'}</button>` : ''}
     </form>`;
+  $('#roleSwitch')?.addEventListener('click', () => { loginAsAdmin = !loginAsAdmin; renderLogin(); });
   $('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = e.submitter;
     btn.disabled = true;
     try {
-      await store.login($('#pin').value);
+      await store.login($('#pin').value, loginAsAdmin);
     } catch (err) {
       const code = err?.code || '';
       $('#loginErr').textContent =
@@ -277,7 +293,7 @@ function openCheckout() {
       toast(`会計完了 ${yen(total)} ／ おつり ${yen(sale.change)}`, {
         ms: 10000,
         action: '取り消す',
-        onAction: () => { store.setVoided(id, true); toast('直前の会計を取り消しました'); },
+        onAction: () => { store.setVoided(id, true, staff || '未設定'); toast('直前の会計を取り消しました'); },
       });
     }
   };
@@ -341,15 +357,7 @@ function renderReport() {
   const staffRows = [...ag.byStaff].map(([name, v]) =>
     `<tr><td>${esc(name)}</td><td class="num">${v.count}件</td><td class="num">${yen(v.amount)}</td></tr>`).join('');
 
-  const recent = [...state.sales].reverse().slice(0, 20).map((s) => `
-    <li class="sale ${s.voided ? 'is-void' : ''}">
-      <div>
-        <div class="sale-head">${timeStr(s.ts)} ／ ${esc(s.staff)}${s.voided ? ' ／ 取消済み' : ''}</div>
-        <div class="sale-items">${s.items.map((i) => `${esc(i.name)}×${i.qty}`).join('、')}</div>
-      </div>
-      <div class="sale-total">${yen(s.total)}</div>
-      <button type="button" class="btn sm ${s.voided ? '' : 'danger'}" data-act="${s.voided ? 'restore' : 'void'}" data-id="${esc(s.id)}">${s.voided ? '取消を戻す' : '取り消す'}</button>
-    </li>`).join('');
+  const voidedCount = state.sales.length - ag.live.length;
 
   main.innerHTML = `
     <div class="stats">
@@ -372,8 +380,40 @@ function renderReport() {
       <tbody>${staffRows || '<tr><td colspan="3" class="muted">なし</td></tr>'}</tbody>
     </table></div>
 
-    <h2 class="section-title">直近の会計</h2>
-    <ul class="sale-list">${recent}</ul>`;
+    <p class="muted" style="margin-top:var(--s5)">取消済み ${voidedCount} 件は集計に含めていません。
+      <button type="button" class="btn ghost sm" data-act="goto" data-view="history">会計履歴を見る</button></p>`;
+}
+
+/* ============ 履歴画面(管理者のみ) ============ */
+function saleRow(s) {
+  const audit = [
+    s.voided && s.voidedAt ? `取消: ${esc(s.voidedBy || '不明')} ／ ${dateTimeStr(s.voidedAt)}` : '',
+    !s.voided && s.restoredAt ? `取消を戻した: ${esc(s.restoredBy || '不明')} ／ ${dateTimeStr(s.restoredAt)}` : '',
+  ].filter(Boolean).join('<br>');
+  return `
+    <li class="sale ${s.voided ? 'is-void' : ''}">
+      <div>
+        <div class="sale-head">${dateTimeStr(s.ts)} ／ ${esc(s.staff)}${s.voided ? ' ／ 取消済み' : ''}</div>
+        <div class="sale-items">${s.items.map((i) => `${esc(i.name)}×${i.qty}`).join('、')}</div>
+        <div class="sale-head">お預かり ${yen(s.received)} ／ おつり ${yen(s.change)}</div>
+        ${audit ? `<div class="sale-audit">${audit}</div>` : ''}
+      </div>
+      <div class="sale-total">${yen(s.total)}</div>
+      <button type="button" class="btn sm ${s.voided ? '' : 'danger'}" data-act="${s.voided ? 'restore' : 'void'}" data-id="${esc(s.id)}">${s.voided ? '取消を戻す' : '取り消す'}</button>
+    </li>`;
+}
+
+function renderHistory() {
+  const all = [...state.sales].reverse();
+  const list = histFilter === 'void' ? all.filter((s) => s.voided || s.restoredAt) : all;
+  const shown = list.slice(0, histLimit);
+  main.innerHTML = `
+    <div class="chips-inline" role="group" aria-label="表示の絞り込み">
+      <button type="button" class="chip ${histFilter === 'all' ? 'is-on' : ''}" data-act="hist-filter" data-f="all">すべて ${all.length}</button>
+      <button type="button" class="chip ${histFilter === 'void' ? 'is-on' : ''}" data-act="hist-filter" data-f="void">取消の履歴 ${all.filter((s) => s.voided || s.restoredAt).length}</button>
+    </div>
+    ${shown.length ? `<ul class="sale-list">${shown.map(saleRow).join('')}</ul>` : '<section class="empty"><h2>該当する会計がありません</h2></section>'}
+    ${list.length > shown.length ? `<div class="card-actions" style="margin-top:var(--s4)"><button type="button" class="btn" data-act="hist-more">さらに表示(残り ${list.length - shown.length} 件)</button></div>` : ''}`;
 }
 
 function exportSettleCsv() {
@@ -534,20 +574,22 @@ function openProductForm(id, sid) {
 /* ============ 管理画面 ============ */
 function renderAdmin() {
   const demo = store.mode === 'demo';
+  const isAdmin = role === 'admin';
   const last = lsGet('rg.lastBackup');
   main.innerHTML = `
     <section class="card"><h2>状態</h2>
       <dl class="kv">
         <dt>動作モード</dt><dd>${demo ? 'デモ(この端末の中だけに保存)' : 'Firebase 同期'}</dd>
+        <dt>ログイン</dt><dd>${isAdmin ? '管理者' : 'スタッフ'}</dd>
         <dt>同期</dt><dd>${demo ? '—' : state.pending > 0 ? `未同期 ${state.pending}件` : state.offline ? 'オフライン(端末に保存済み)' : '同期済み'}</dd>
-        <dt>登録数</dt><dd>出品者 ${state.sellers.length} ／ 商品 ${state.products.length} ／ 会計 ${state.sales.length}</dd>
+        <dt>登録数</dt><dd>出品者 ${state.sellers.length} ／ 商品 ${state.products.length}${isAdmin ? ` ／ 会計 ${state.sales.length}` : ''}</dd>
       </dl>
     </section>
     <section class="card"><h2>担当者</h2>
       <p>会計に記録される名前です(シフト別の集計に使います)。交代したら変更してください。</p>
       <div class="card-actions"><button type="button" class="btn" data-act="staff">現在: ${esc(staff || '未設定')} — 変更</button></div>
     </section>
-    <section class="card"><h2>バックアップ</h2>
+    ${isAdmin ? `<section class="card"><h2>バックアップ</h2>
       <p>写真を含む全データをファイルに保存します。当日は 1〜2 時間おきに保存して、別の場所(LINE の自分宛てなど)に送っておくと安心です。<br>最後に保存: ${last ? esc(dateTimeStr(Number(last))) : 'まだありません'}</p>
       <div class="card-actions">
         <button type="button" class="btn primary" data-act="backup">全データを書き出す</button>
@@ -560,7 +602,7 @@ function renderAdmin() {
     <section class="card is-danger"><h2>テスト売上の消去</h2>
       <p>本番前のテスト会計を消すときに使います。出品者・商品は消えません。<b>全員の端末から売上が消え、元に戻せません。</b></p>
       <div class="card-actions"><button type="button" class="btn danger" data-act="clear-sales">売上を全て消去</button></div>
-    </section>
+    </section>` : ''}
     ${demo ? '' : `<section class="card"><h2>ログアウト</h2>
       <div class="card-actions"><button type="button" class="btn" data-act="logout">ログアウト</button></div></section>`}`;
 }
@@ -697,9 +739,11 @@ main.addEventListener('click', async (e) => {
     case 'add': changeCart(pid, 1); refreshTile(pid); break;
     case 'minus': changeCart(pid, -1); refreshTile(pid); break;
     case 'void':
-      if (await confirmDialog('この会計を取り消しますか?(集計から除外されます。後で戻せます)', '取り消す', true)) store.setVoided(id, true);
+      if (await confirmDialog('この会計を取り消しますか?(集計から除外されます。後で戻せます)', '取り消す', true)) store.setVoided(id, true, staff || '管理者');
       break;
-    case 'restore': store.setVoided(id, false); break;
+    case 'restore': store.setVoided(id, false, staff || '管理者'); break;
+    case 'hist-filter': histFilter = t.dataset.f; histLimit = 50; render(); break;
+    case 'hist-more': histLimit += 50; render(); break;
     case 'csv-settle': exportSettleCsv(); break;
     case 'csv-detail': exportDetailCsv(); break;
     case 'seller-new': openSellerForm(); break;
