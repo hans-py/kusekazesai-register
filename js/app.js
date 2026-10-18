@@ -768,7 +768,12 @@ main.addEventListener('click', async (e) => {
       }
       break;
     case 'logout':
-      if (await confirmDialog('ログアウトしますか?(未同期のデータは端末に残り、次回ログイン時に同期されます)', 'ログアウト')) store.logout();
+      if (await confirmDialog('ログアウトしますか?(未同期のデータは端末に残り、次回ログイン時に同期されます。担当者名も消えます)', 'ログアウト')) {
+        // 次にログインする人が、前の人の名前で会計を記録しないよう、担当者名を消して必ず入力させる。
+        staff = '';
+        lsSet('rg.staff', '');
+        store.logout();
+      }
       break;
   }
 });
