@@ -301,6 +301,8 @@ dialog::backdrop { background: rgba(32, 30, 27, .55); }
 .key { min-height: 48px; border: 1px solid var(--line-strong); border-radius: var(--s2); background: var(--surface); font-size: var(--t-lg); font-weight: 700; cursor: pointer; }
 .key:hover { background: var(--surface-2); }
 .key:active { transform: translateY(1px); }
+.key-clear { background: var(--danger-soft); border-color: #e3b9af; color: var(--danger); font-size: var(--t-base); }
+.key-clear:hover { background: #f1d3cb; }
 .sheet-foot { margin-top: var(--s2); padding: var(--s2) 0 calc(var(--s4) + var(--safe-b)); background: var(--surface); display: grid; gap: var(--s2); }
 .change { padding: var(--s2) var(--s3); border-radius: var(--s2); text-align: center; font-size: var(--t-base); font-weight: 700; background: var(--surface-2); color: var(--muted); }
 .change.ok { background: var(--accent-soft); color: var(--accent); font-size: var(--t-xl); }

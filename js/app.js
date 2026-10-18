@@ -232,7 +232,9 @@ function openCheckout() {
           <button type="button" class="btn" data-d="add" data-v="10000">＋10,000</button>
         </div>
         <div class="keypad">
-          ${['7', '8', '9', '4', '5', '6', '1', '2', '3', 'C', '0', '00'].map((k) => `<button type="button" class="key" data-d="key" data-k="${k}">${k}</button>`).join('')}
+          ${['7', '8', '9', '4', '5', '6', '1', '2', '3', 'C', '0', '00'].map((k) => k === 'C'
+            ? '<button type="button" class="key key-clear" data-d="key" data-k="C" aria-label="お預かり金額をクリア">クリア</button>'
+            : `<button type="button" class="key" data-d="key" data-k="${k}">${k}</button>`).join('')}
         </div>
         <div class="sheet-foot">
           <div class="change ${received === 0 ? '' : diff >= 0 ? 'ok' : 'short'}">
