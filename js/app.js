@@ -37,6 +37,8 @@ let dlgHandler = null;
 
 const saveCart = () => lsSet('rg.cart', JSON.stringify([...cart]));
 const colorOf = (sid) => safeColor(sellerById.get(sid)?.color);
+// 通貨記号だけ小さくして、数字を主役にする(等幅の数字は style.css の .tile-price などで指定)。
+const money = (n) => '<small>¥</small>' + Number(n || 0).toLocaleString('ja-JP');
 const dateTimeStr = (ts) => new Date(ts).toLocaleString('ja-JP', { hour12: false });
 
 /* ============ 起動 ============ */
@@ -137,17 +139,17 @@ function tileHtml(p) {
   const c = colorOf(p.sellerId);
   const photo = p.photo
     ? `<img src="${esc(p.photo)}" alt="" loading="lazy">`
-    : `<span class="ph" style="--c:${c}">${esc([...p.name][0] || '?')}</span>`;
+    : '<span class="ph">写真なし</span>';
   return `
-    <div class="tile ${qty ? 'is-on' : ''} ${p.soldOut ? 'is-out' : ''}" data-pid="${esc(p.id)}">
+    <div class="tile ${qty ? 'is-on' : ''} ${p.soldOut ? 'is-out' : ''}" data-pid="${esc(p.id)}" style="--c:${c}">
       <button type="button" class="tile-main" data-act="add" data-pid="${esc(p.id)}" ${p.soldOut ? 'disabled' : ''}
         aria-label="${esc(p.name)} ${yen(p.price)} を追加">
         <span class="tile-photo">${photo}</span>
         <span class="tile-body">
           <span class="tile-name">${esc(p.name)}</span>
           <span class="tile-meta">
-            <span class="tile-seller" style="--c:${c}"><i class="dot"></i><span>${esc(s?.name || '')}</span></span>
-            <span class="tile-price">${yen(p.price)}</span>
+            <span class="tile-seller">${esc(s?.name || '')}</span>
+            <span class="tile-price">${money(p.price)}</span>
           </span>
         </span>
       </button>
@@ -191,7 +193,7 @@ function updateCartBar() {
   const show = loggedIn === true && view === 'register' && n > 0;
   $('#cartBar').hidden = !show;
   document.body.classList.toggle('has-cart', show);
-  if (show) $('#cartSummary').innerHTML = `<span>${n}点</span><strong>${yen(cartTotal())}</strong>`;
+  if (show) $('#cartSummary').innerHTML = `<span>${n}点</span><strong>${money(cartTotal())}</strong>`;
 }
 
 function changeCart(pid, d) {
@@ -227,9 +229,8 @@ function openCheckout() {
         <ul class="lines">
           ${lines.map(({ p, qty }) => `
             <li class="line">
-              <div class="line-name">${esc(p.name)}</div>
-              <div class="line-amt">${yen(p.price * qty)}</div>
-              <div class="line-sub"><i class="dot" style="--c:${colorOf(p.sellerId)}"></i><span>${esc(sellerById.get(p.sellerId)?.name || '')} · ${yen(p.price)}</span></div>
+              <div class="line-main"><span class="line-name">${esc(p.name)}</span><i class="leader"></i><span class="line-amt">${money(p.price * qty)}</span></div>
+              <div class="line-sub"><i class="dot" style="--c:${colorOf(p.sellerId)}"></i><span>${esc(sellerById.get(p.sellerId)?.name || '')} ・ ${yen(p.price)}</span></div>
               <div class="stepper">
                 <button type="button" data-d="dec" data-pid="${esc(p.id)}" aria-label="${esc(p.name)}を1つ減らす">−</button>
                 <output>${qty}</output>
@@ -238,8 +239,8 @@ function openCheckout() {
             </li>`).join('')}
         </ul>
         <div class="amounts">
-          <div><span>合計</span><strong>${yen(total)}</strong></div>
-          <div><span>お預かり</span><output>${yen(received)}</output></div>
+          <div><span>合計</span><strong>${money(total)}</strong></div>
+          <div><span>お預かり</span><output>${money(received)}</output></div>
         </div>
         <div class="quick">
           <button type="button" class="btn" data-d="exact">ちょうど</button>
@@ -254,7 +255,7 @@ function openCheckout() {
         </div>
         <div class="sheet-foot">
           <div class="change ${received === 0 ? '' : diff >= 0 ? 'ok' : 'short'}">
-            ${received === 0 ? 'お預かり金額を入力してください' : diff >= 0 ? `おつり ${yen(diff)}` : `あと ${yen(-diff)} 足りません`}
+            ${received === 0 ? 'お預かり金額を入力してください' : diff >= 0 ? `<span>おつり</span><b>${money(diff)}</b>` : `あと ${yen(-diff)} 足りません`}
           </div>
           <button type="button" class="btn primary big" data-d="confirm" ${ok ? '' : 'disabled'}>会計を確定する</button>
         </div>
@@ -455,7 +456,7 @@ function renderSetup() {
         </div>
         ${items.length ? items.map((p) => `
           <div class="prod-row">
-            <div class="prod-thumb">${p.photo ? `<img src="${esc(p.photo)}" alt="">` : `<span class="ph" style="--c:${safeColor(s.color)}">${esc([...p.name][0] || '?')}</span>`}</div>
+            <div class="prod-thumb">${p.photo ? `<img src="${esc(p.photo)}" alt="">` : '<span class="ph">写真なし</span>'}</div>
             <div><div class="prod-name">${esc(p.name)}</div><div class="prod-price">${yen(p.price)}</div></div>
             <div class="prod-actions">
               <label class="toggle-wrap"><input type="checkbox" class="toggle" data-act="soldout" data-id="${esc(p.id)}" ${p.soldOut ? 'checked' : ''}>売り切れ</label>
@@ -535,10 +536,7 @@ function openProductForm(id, sid) {
       <div class="row-end"><button type="button" class="btn" data-d="close">キャンセル</button><button class="btn primary" id="prodSave">保存</button></div>
     </form>`;
   const paint = () => {
-    const nm = dlg.querySelector('[name=name]').value;
-    $('#photoPrev').innerHTML = photo
-      ? `<img src="${esc(photo)}" alt="選んだ写真">`
-      : `<span class="ph" style="--c:#8a8478">${esc([...nm][0] || '写')}</span>`;
+    $('#photoPrev').innerHTML = photo ? `<img src="${esc(photo)}" alt="選んだ写真">` : '<span class="ph">写真なし</span>';
   };
   paint();
   dlgHandler = (t) => {
@@ -547,7 +545,6 @@ function openProductForm(id, sid) {
     else if (a === 'pick') $('#photoIn').click();
     else if (a === 'nophoto') { photo = ''; paint(); }
   };
-  dlg.querySelector('[name=name]').addEventListener('input', () => { if (!photo) paint(); });
   $('#photoIn').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
