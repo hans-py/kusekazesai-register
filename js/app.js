@@ -1,7 +1,8 @@
 import { createStore } from './store.js';
 import { esc, yen, safeColor, toCsv, download, resizePhoto } from './util.js';
 
-const SELLER_COLORS = ['#c8472b', '#2f6db5', '#7a4fa3', '#8f5f00', '#1f7a66', '#b83a72', '#55662a', '#4a5568'];
+// 深い宝石色(臙脂・紺・葡萄・芥子・青緑・赤紫・苔・墨青)。util.js の LEGACY_COLORS と並びを揃えること。
+const SELLER_COLORS = ['#8c2f39', '#1f4e79', '#5b3a7a', '#8a6d1b', '#1e6b5c', '#a23b72', '#4d5d2a', '#3d4451'];
 const VIEWS = ['register', 'report', 'history', 'setup', 'admin'];
 // 役割ごとに開ける画面。スタッフは売上を読めない(Firestore のルールで強制)ので、売上系の画面は出さない。
 // スタッフもレジと商品登録はできる。

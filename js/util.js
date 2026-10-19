@@ -5,8 +5,14 @@ export const esc = (s) =>
 
 export const yen = (n) => '¥' + Number(n || 0).toLocaleString('ja-JP');
 
+// 旧パレットで保存済みの出品者の色を、表示のときだけ新しい色に置き換える(保存データは書き換えない)。
+const LEGACY_COLORS = {
+  '#c8472b': '#8c2f39', '#2f6db5': '#1f4e79', '#7a4fa3': '#5b3a7a', '#8f5f00': '#8a6d1b',
+  '#1f7a66': '#1e6b5c', '#b83a72': '#a23b72', '#55662a': '#4d5d2a', '#4a5568': '#3d4451',
+};
 // 色は style 属性に埋め込むので、#rrggbb 以外は受け付けない。
-export const safeColor = (c, fallback = '#4a5568') => (/^#[0-9a-f]{6}$/i.test(c) ? c : fallback);
+export const safeColor = (c, fallback = '#3d4451') =>
+  /^#[0-9a-f]{6}$/i.test(c) ? LEGACY_COLORS[c.toLowerCase()] ?? c : fallback;
 
 export const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
