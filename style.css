@@ -270,8 +270,11 @@ dialog::backdrop { background: rgba(20, 20, 20, .55); }
 #dlg2 form { padding: var(--s5); display: grid; gap: var(--s4); }
 
 /* 会計ダイアログ: 画面に収め、おつりと確定ボタンは常に最下部に見える。明細は点線でつなぐ伝票風 */
-#dlg:has(.checkout) { overflow: hidden; }
-.sheet.checkout { display: flex; flex-direction: column; max-height: 100dvh; padding-bottom: 0; }
+/* 高さは親(#dlg)の max-height に合わせる(画面幅で 100dvh / 92dvh が変わるため、食い違うとボタンが画面外に出る)。
+   商品が多いときは明細(.lines)だけが縮んでスクロールし、おつりと確定ボタンは常に見える。
+   画面が極端に低くて収まらないときは、ダイアログ全体をスクロールし、確定ボタンの帯は下端に貼り付く。 */
+#dlg:has(.checkout) { overflow-y: auto; }
+.sheet.checkout { display: flex; flex-direction: column; max-height: inherit; padding-bottom: 0; }
 .sheet.checkout > * { flex: none; }
 .lines { list-style: none; margin: 0 0 var(--s2); padding: 0 var(--s2) 0 0; flex: 0 1 auto !important; min-height: 96px; overflow-y: auto; scrollbar-width: thin; border-top: 1px solid var(--ink); }
 .line { display: grid; grid-template-columns: 1fr auto; gap: 0 var(--s3); align-items: center; padding: var(--s2) 0; border-bottom: 1px dotted var(--line-strong); }
@@ -303,7 +306,11 @@ dialog::backdrop { background: rgba(20, 20, 20, .55); }
 .quick .btn:hover, .key:hover { background: var(--surface-2); }
 .key:active, .quick .btn:active { background: var(--line); transform: none; }
 .key-clear { color: var(--signal); font-family: inherit; font-size: var(--t-base); font-weight: 700; }
-.sheet-foot { margin-top: var(--s2); padding: var(--s2) 0 calc(var(--s4) + var(--safe-b)); background: var(--surface); display: grid; gap: var(--s2); }
+.sheet-foot { position: sticky; bottom: 0; margin-top: var(--s2); padding: var(--s2) 0 calc(var(--s4) + var(--safe-b)); background: var(--surface); display: grid; gap: var(--s2); }
+@media (max-height: 700px) {
+  .key { min-height: 44px; }
+  .amounts strong, .amounts output { font-size: var(--t-xl); }
+}
 .change { display: flex; align-items: baseline; justify-content: center; gap: var(--s3); padding: var(--s2) var(--s3); border: 1px solid var(--line); text-align: center; font-size: var(--t-base); background: var(--surface-2); color: var(--muted); }
 .change.ok { background: #fff; border-color: var(--ink); border-width: 2px; color: var(--ink); }
 .change.ok b { font-family: var(--num); font-size: var(--t-2xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
