@@ -1,15 +1,16 @@
 /* 癖風祭レジ — 伝票・値札から引き算した、白と黒インクの設計。
    余白は 4/8/12/16/24/32/48、文字は 12/14/16/20/24/32 のスケールだけを使う。
+   灰色は黄みを帯びさせず、わずかに青みのある無彩色寄り(背景 #f5f6f7)にする。
    色は 紙の白・黒インク・深い赤1色(取消/クリア/注意)。出品者の色は、明度を落とした深い宝石色(識別のための細い帯にだけ使う)。
    数字(価格・合計・おつり)は等幅フォントで主役にする。太字は価格と合計だけ。 */
 :root {
-  --bg: #f5f5f4;
+  --bg: #f5f6f7;
   --surface: #fff;
-  --surface-2: #ebebe8;
+  --surface-2: #eceef0;
   --ink: #111111;
-  --muted: #6b6b66;
-  --line: #dcdcd6;
-  --line-strong: #9a9a93;
+  --muted: #666b73;
+  --line: #dfe1e4;
+  --line-strong: #9ca0a6;
   --signal: #b3261e;
   --signal-hover: #8f1e17;
   --signal-soft: #f7e6e4;
@@ -83,7 +84,7 @@ main { max-width: 1100px; margin: 0 auto; padding: var(--s4); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; font-weight: 400; }
 .btn.sm { min-height: 44px; padding: var(--s1) var(--s4); font-size: var(--t-sm); }
 .btn.big { min-height: 56px; font-size: var(--t-lg); width: 100%; }
-.btn:disabled { background: var(--surface-2); border-color: var(--line); color: #77776f; cursor: not-allowed; transform: none; }
+.btn:disabled { background: var(--surface-2); border-color: var(--line); color: #6f747b; cursor: not-allowed; transform: none; }
 
 .icon-btn { width: 44px; height: 44px; border: 0; border-radius: var(--radius); background: transparent; font-size: var(--t-xl); line-height: 1; cursor: pointer; }
 .icon-btn:hover { background: var(--surface-2); }
@@ -148,7 +149,7 @@ main { max-width: 1100px; margin: 0 auto; padding: var(--s4); }
   background: var(--ink); color: #fff;
 }
 .cartbar-sum { display: flex; align-items: baseline; gap: var(--s3); }
-.cartbar-sum span { color: #c9c9c2; font-size: var(--t-sm); }
+.cartbar-sum span { color: #c5c9ce; font-size: var(--t-sm); }
 .cartbar-sum strong { font-family: var(--num); font-size: var(--t-2xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .cartbar .btn { min-width: 144px; background: #fff; border-color: #fff; color: var(--ink); }
 .cartbar .btn:hover { background: var(--surface-2); }
@@ -182,8 +183,12 @@ main { max-width: 1100px; margin: 0 auto; padding: var(--s4); }
 .stat span { display: block; font-size: var(--t-xs); color: var(--muted); }
 .stat strong { display: block; font-family: var(--num); font-size: var(--t-lg); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
 .stat.main { grid-column: 1 / -1; background: var(--ink); color: #fff; border-color: var(--ink); }
-.stat.main span { color: #c9c9c2; }
+.stat.main span { color: #c5c9ce; }
 .stat.main strong { font-size: var(--t-2xl); }
+.stat.wide { grid-column: 1 / -1; }
+.stat.wide strong { font-size: var(--t-xl); }
+.stat.wide strong em { font-style: normal; font-size: var(--t-base); font-weight: 400; color: var(--muted); margin-left: var(--s3); }
+.stat.wide p { margin: var(--s1) 0 0; font-size: var(--t-sm); color: var(--muted); }
 
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: var(--s2) var(--s3); text-align: left; border-bottom: 1px solid var(--line); font-size: var(--t-sm); }
@@ -231,7 +236,7 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 .setup-empty { padding: var(--s4); color: var(--muted); font-size: var(--t-sm); }
 
 .toggle-wrap { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--t-sm); cursor: pointer; }
-.toggle { appearance: none; -webkit-appearance: none; position: relative; width: 46px; height: 26px; margin: 0; border-radius: 2px; background: #c9c9c2; cursor: pointer; transition: background-color .16s ease; flex: none; }
+.toggle { appearance: none; -webkit-appearance: none; position: relative; width: 46px; height: 26px; margin: 0; border-radius: 2px; background: #c5c9ce; cursor: pointer; transition: background-color .16s ease; flex: none; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 1px; background: #fff; transition: transform .16s ease; }
 .toggle:checked { background: var(--signal); }
 .toggle:checked::after { transform: translateX(20px); }
@@ -288,6 +293,16 @@ dialog::backdrop { background: rgba(20, 20, 20, .55); }
 .stepper button { width: 44px; height: 44px; border: 1px solid var(--ink); border-radius: var(--radius); background: var(--surface); font-size: var(--t-xl); line-height: 1; cursor: pointer; }
 .stepper button:hover { background: var(--surface-2); }
 .stepper output { min-width: 40px; text-align: center; font-family: var(--num); font-size: var(--t-lg); font-weight: 700; }
+
+.stepper button:disabled { color: #6f747b; border-color: var(--line-strong); background: var(--surface-2); cursor: not-allowed; }
+
+/* チケット(SUAC・ポプラ)の枚数。2種類を横に並べ、1行分の高さに収める */
+.tickets { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); padding: var(--s2) 0; border-bottom: 1px dotted var(--line-strong); }
+.ticket { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
+.ticket-label { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); font-size: var(--t-sm); }
+.ticket-label small { font-family: var(--num); font-size: var(--t-xs); color: var(--muted); font-weight: 400; margin: 0; }
+.ticket .stepper { justify-content: space-between; }
+.tk-note { margin: 0; padding: var(--s2) var(--s3); font-size: var(--t-sm); background: var(--surface-2); }
 
 .amounts { display: grid; grid-template-columns: 1fr 1fr; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line-strong); }
 .amounts > div { display: flex; flex-direction: column; padding: var(--s2) var(--s3); }

@@ -4,6 +4,9 @@ import { esc, yen, safeColor, toCsv, download, resizePhoto } from './util.js';
 // 深い宝石色(臙脂・紺・葡萄・芥子・青緑・赤紫・苔・墨青)。util.js の LEGACY_COLORS と並びを揃えること。
 const SELLER_COLORS = ['#8c2f39', '#1f4e79', '#5b3a7a', '#8a6d1b', '#1e6b5c', '#a23b72', '#4d5d2a', '#3d4451'];
 const VIEWS = ['register', 'report', 'history', 'setup', 'admin'];
+// 支払いに使えるチケット(種類は固定、1枚あたりの額も固定)。キーは会計データの tickets に保存される。
+const TICKET_YEN = 100;
+const TICKETS = [['suac', 'SUAC チケット'], ['popular', 'ポプラチケット']];
 // 役割ごとに開ける画面。スタッフは売上を読めない(Firestore のルールで強制)ので、売上系の画面は出さない。
 // スタッフもレジと商品登録はできる。
 const TABS = {
@@ -215,15 +218,22 @@ function refreshTile(pid) {
 /* ---- 会計ダイアログ ---- */
 function openCheckout() {
   if (!cartLines().length) return;
-  let received = 0;
+  let received = 0; // 現金のお預かり
   let busy = false;
+  const tk = { suac: 0, popular: 0 }; // 受け取ったチケットの枚数
 
   const draw = () => {
     const lines = cartLines();
     if (!lines.length) { dlg.close(); render(); return; }
     const total = cartTotal();
-    const ok = received >= total && !busy;
-    const diff = received - total;
+    // 明細を減らして合計が下がったら、チケットは合計を超えない枚数まで減らす(チケットではおつりを出さない)。
+    const maxTk = Math.floor(total / TICKET_YEN);
+    tk.suac = Math.min(tk.suac, maxTk);
+    tk.popular = Math.min(tk.popular, maxTk - tk.suac);
+    const tkCount = tk.suac + tk.popular;
+    const due = total - tkCount * TICKET_YEN; // 現金で払う額
+    const ok = received >= due && !busy;
+    const diff = received - due;
     dlg.innerHTML = `
       <div class="sheet checkout">
         <header><h2>会計</h2><button type="button" class="icon-btn" data-d="close" aria-label="閉じる">×</button></header>
@@ -239,10 +249,22 @@ function openCheckout() {
               </div>
             </li>`).join('')}
         </ul>
+        <div class="tickets" role="group" aria-label="チケット(1枚 ${yen(TICKET_YEN)})">
+          ${TICKETS.map(([k, label]) => `
+            <div class="ticket">
+              <span class="ticket-label">${label}<small>1枚 ${yen(TICKET_YEN)}</small></span>
+              <div class="stepper">
+                <button type="button" data-d="tk-dec" data-k="${k}" ${tk[k] <= 0 ? 'disabled' : ''} aria-label="${label}を1枚減らす">−</button>
+                <output>${tk[k]}</output>
+                <button type="button" data-d="tk-inc" data-k="${k}" ${tkCount >= maxTk ? 'disabled' : ''} aria-label="${label}を1枚増やす">＋</button>
+              </div>
+            </div>`).join('')}
+        </div>
         <div class="amounts">
           <div><span>合計</span><strong>${money(total)}</strong></div>
-          <div><span>お預かり</span><output>${money(received)}</output></div>
+          <div><span>${tkCount ? '現金のお預かり' : 'お預かり'}</span><output>${money(received)}</output></div>
         </div>
+        ${tkCount ? `<p class="tk-note">チケット ${tkCount}枚(−${yen(tkCount * TICKET_YEN)})→ 現金で ${yen(due)}</p>` : ''}
         <div class="quick">
           <button type="button" class="btn" data-d="exact">ちょうど</button>
           <button type="button" class="btn" data-d="add" data-v="1000">＋1,000</button>
@@ -255,8 +277,8 @@ function openCheckout() {
             : `<button type="button" class="key" data-d="key" data-k="${k}">${k}</button>`).join('')}
         </div>
         <div class="sheet-foot">
-          <div class="change ${received === 0 ? '' : diff >= 0 ? 'ok' : 'short'}">
-            ${received === 0 ? 'お預かり金額を入力してください' : diff >= 0 ? `<span>おつり</span><b>${money(diff)}</b>` : `あと ${yen(-diff)} 足りません`}
+          <div class="change ${received === 0 && due > 0 ? '' : diff >= 0 ? 'ok' : 'short'}">
+            ${received === 0 && due > 0 ? 'お預かり金額を入力してください' : diff >= 0 ? `<span>おつり</span><b>${money(diff)}</b>` : `あと ${yen(-diff)} 足りません`}
           </div>
           <button type="button" class="btn primary big" data-d="confirm" ${ok ? '' : 'disabled'}>会計を確定する</button>
         </div>
@@ -268,31 +290,36 @@ function openCheckout() {
     if (a === 'close') dlg.close();
     else if (a === 'inc') { changeCart(t.dataset.pid, 1); draw(); }
     else if (a === 'dec') { changeCart(t.dataset.pid, -1); draw(); }
-    else if (a === 'exact') { received = cartTotal(); draw(); }
+    else if (a === 'tk-inc') { if (tk.suac + tk.popular < Math.floor(cartTotal() / TICKET_YEN)) { tk[t.dataset.k] += 1; draw(); } }
+    else if (a === 'tk-dec') { tk[t.dataset.k] = Math.max(0, tk[t.dataset.k] - 1); draw(); }
+    else if (a === 'exact') { received = cartTotal() - (tk.suac + tk.popular) * TICKET_YEN; draw(); }
     else if (a === 'add') { received = Math.min(received + Number(t.dataset.v), 9999999); draw(); }
     else if (a === 'key') {
       const k = t.dataset.k;
       received = k === 'C' ? 0 : Math.min(Number(String(received === 0 ? '' : received) + k), 9999999);
       draw();
     } else if (a === 'confirm') {
-      if (busy || received < cartTotal()) return;
+      const total = cartTotal();
+      const tkCount = tk.suac + tk.popular;
+      const due = total - tkCount * TICKET_YEN;
+      if (busy || tkCount * TICKET_YEN > total || received < due) return;
       busy = true;
       const lines = cartLines();
-      const total = cartTotal();
+      // total は商品代の全額(チケット払い分を含む)。received は現金のお預かり、change は現金のおつり。
       const sale = {
         ts: Date.now(),
         staff: staff || '未設定',
         items: lines.map(({ p, qty }) => ({
           pid: p.id, sid: p.sellerId, name: p.name, sname: sellerById.get(p.sellerId)?.name || '', price: p.price, qty,
         })),
-        total, received, change: received - total, voided: false,
+        total, received, change: received - due, tickets: { suac: tk.suac, popular: tk.popular }, voided: false,
       };
       const id = store.addSale(sale);
       cart.clear();
       saveCart();
       dlg.close();
       render();
-      toast(`会計完了 ${yen(total)} ／ おつり ${yen(sale.change)}`, {
+      toast(`会計完了 ${yen(total)} ／ おつり ${yen(sale.change)}${tkCount ? ` ／ チケット${tkCount}枚` : ''}`, {
         ms: 10000,
         action: '取り消す',
         onAction: () => { store.setVoided(id, true, staff || '未設定'); toast('直前の会計を取り消しました'); },
@@ -310,8 +337,10 @@ function aggregate() {
   const byStaff = new Map();
   let qty = 0;
   let total = 0;
+  const tickets = { suac: 0, popular: 0 }; // 受け取ったチケットの枚数(取消した会計は含めない)
   for (const s of live) {
     total += s.total;
+    for (const [k] of TICKETS) tickets[k] += s.tickets?.[k] || 0;
     const st = byStaff.get(s.staff) || { count: 0, amount: 0 };
     st.count += 1;
     st.amount += s.total;
@@ -330,7 +359,9 @@ function aggregate() {
   }
   const order = new Map(state.sellers.map((s, i) => [s.id, i]));
   const sellers = [...bySeller.values()].sort((a, b) => (order.get(a.sid) ?? 99) - (order.get(b.sid) ?? 99));
-  return { live, total, qty, sellers, byStaff };
+  const ticketCount = tickets.suac + tickets.popular;
+  const ticketAmount = ticketCount * TICKET_YEN;
+  return { live, total, qty, sellers, byStaff, tickets, ticketCount, ticketAmount, cash: total - ticketAmount };
 }
 
 function renderReport() {
@@ -364,6 +395,11 @@ function renderReport() {
   main.innerHTML = `
     <div class="stats">
       <div class="stat main"><span>総売上</span><strong>${yen(ag.total)}</strong></div>
+      <div class="stat wide">
+        <span>チケット合計(受取)</span>
+        <strong>${ag.ticketCount}枚<em>${yen(ag.ticketAmount)}</em></strong>
+        <p>${TICKETS.map(([k, label]) => `${label} ${ag.tickets[k]}枚`).join(' ／ ')} ／ 現金で受け取った売上 ${yen(ag.cash)}</p>
+      </div>
       <div class="stat"><span>会計数</span><strong>${ag.live.length}</strong></div>
       <div class="stat"><span>販売点数</span><strong>${ag.qty}</strong></div>
       <div class="stat"><span>客単価</span><strong>${ag.live.length ? yen(Math.round(ag.total / ag.live.length)) : '—'}</strong></div>
@@ -387,6 +423,8 @@ function renderReport() {
 }
 
 /* ============ 履歴画面(管理者のみ) ============ */
+const saleTicketCount = (s) => TICKETS.reduce((n, [k]) => n + (s.tickets?.[k] || 0), 0);
+
 function saleRow(s) {
   const audit = [
     s.voided && s.voidedAt ? `取消: ${esc(s.voidedBy || '不明')} ／ ${dateTimeStr(s.voidedAt)}` : '',
@@ -397,7 +435,7 @@ function saleRow(s) {
       <div>
         <div class="sale-head">${dateTimeStr(s.ts)} ／ ${esc(s.staff)}${s.voided ? ' ／ 取消済み' : ''}</div>
         <div class="sale-items">${s.items.map((i) => `${esc(i.name)}×${i.qty}`).join('、')}</div>
-        <div class="sale-head">お預かり ${yen(s.received)} ／ おつり ${yen(s.change)}</div>
+        <div class="sale-head">${saleTicketCount(s) ? `チケット ${TICKETS.filter(([k]) => s.tickets?.[k]).map(([k, label]) => `${label.replace(/\s*チケット/, '')} ${s.tickets[k]}枚`).join('、')} ／ 現金` : ''}お預かり ${yen(s.received)} ／ おつり ${yen(s.change)}</div>
         ${audit ? `<div class="sale-audit">${audit}</div>` : ''}
       </div>
       <div class="sale-total">${yen(s.total)}</div>
@@ -427,13 +465,21 @@ function exportSettleCsv() {
     rows.push([name, '【小計】', '', b.qty, b.amount]);
   }
   rows.push(['全体', '【総売上】', '', ag.qty, ag.total]);
+  // チケット払い分は上の出品者の売上に含まれている。受取枚数と、現金で受け取った売上を別に記す。
+  for (const [k, label] of TICKETS) rows.push(['チケット', label, TICKET_YEN, ag.tickets[k], ag.tickets[k] * TICKET_YEN]);
+  rows.push(['チケット', '【合計】', '', ag.ticketCount, ag.ticketAmount]);
+  rows.push(['現金', '【現金売上(総売上−チケット)】', '', '', ag.cash]);
   download(`精算_${stamp()}.csv`, toCsv(rows));
 }
 
 function exportDetailCsv() {
-  const rows = [['日時', '担当', '出品者', '商品', '単価', '個数', '金額', '会計合計(行ごとに繰返し・合算不可)', '取消', '会計ID']];
+  const rows = [['日時', '担当', '出品者', '商品', '単価', '個数', '金額', '会計合計(行ごとに繰返し・合算不可)', 'SUACチケット枚(会計の先頭行のみ)', 'ポプラチケット枚(会計の先頭行のみ)', '取消', '会計ID']];
   for (const s of state.sales) {
-    for (const i of s.items) rows.push([dateTimeStr(s.ts), s.staff, i.sname, i.name, i.price, i.qty, i.price * i.qty, s.total, s.voided ? 'はい' : '', s.id]);
+    s.items.forEach((i, n) => rows.push([
+      dateTimeStr(s.ts), s.staff, i.sname, i.name, i.price, i.qty, i.price * i.qty, s.total,
+      n === 0 ? s.tickets?.suac || 0 : '', n === 0 ? s.tickets?.popular || 0 : '',
+      s.voided ? 'はい' : '', s.id,
+    ]));
   }
   download(`会計明細_${stamp()}.csv`, toCsv(rows));
 }
